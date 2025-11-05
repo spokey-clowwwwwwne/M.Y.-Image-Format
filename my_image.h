@@ -19,15 +19,15 @@ typedef int64_t i64;
 #endif
 
 #ifndef BOOL
-#define BOOL i8
+#define BOOL ui8
 #endif // !BOOL
 
 #ifndef TRUE
-#define TRUE 1ui8
+#define TRUE ((BOOL)1)
 #endif // !TRUE
 
 #ifndef FALSE
-#define FALSE 0ui8
+#define FALSE ((BOOL)0)
 #endif // !FALSE
 
 typedef struct
@@ -76,7 +76,9 @@ static inline void ImageInit(Image_t* Image)
 
 static inline BOOL ImageCreate(Image_t* Image, ui32 Width, ui32 Height, ui16 Channels, ui64 TypeSize)
 {
-	if (!Image) return FALSE;
+	if (!Image || Width == 0 || Height == 0 || Channels == 0 || TypeSize == 0) return FALSE;
+	if (Width == 0 || Height == 0 || Channels == 0 || TypeSize == 0) return FALSE;
+
 	if (Image->m_OwnsData && Image->m_Data)
 	{
 		free(Image->m_Data);
@@ -88,8 +90,8 @@ static inline BOOL ImageCreate(Image_t* Image, ui32 Width, ui32 Height, ui16 Cha
 	Image->m_Channels = Channels;
 	Image->m_TypeSize = TypeSize;
 
-	Image->m_Stride = (ui64)Width * Channels;
-	Image->m_Data = malloc(Height * Image->m_Stride * TypeSize);
+	Image->m_Stride = (ui64)Width * Channels * TypeSize;
+	Image->m_Data = malloc(Height * Image->m_Stride);
 	if (!Image->m_Data)
 	{
 		return FALSE;
@@ -102,7 +104,8 @@ static inline BOOL ImageCreate(Image_t* Image, ui32 Width, ui32 Height, ui16 Cha
 
 static inline void ImageCreateView(Image_t* Image, ui32 Width, ui32 Height, ui16 Channels, ui64 TypeSize, void* Data)
 {
-	if (!Image || !Data) return;
+	if (!Image || !Data || Width == 0 || Height == 0 || Channels == 0 || TypeSize == 0) return;
+
 	if (Image->m_OwnsData && Image->m_Data)
 	{
 		free(Image->m_Data);
@@ -114,7 +117,7 @@ static inline void ImageCreateView(Image_t* Image, ui32 Width, ui32 Height, ui16
 	Image->m_Channels = Channels;
 	Image->m_TypeSize = TypeSize;
 
-	Image->m_Stride = (ui64)Width * Channels;
+	Image->m_Stride = (ui64)Width * Channels * TypeSize;
 	Image->m_Data = Data;
 
 	Image->m_OwnsData = FALSE;
@@ -123,6 +126,7 @@ static inline void ImageCreateView(Image_t* Image, ui32 Width, ui32 Height, ui16
 static inline void ImageCreateMove(Image_t* Image, ui32 Width, ui32 Height, ui16 Channels, ui64 TypeSize, void** Data)
 {
 	if (!Image || !Data) return;
+	if (Width == 0 || Height == 0 || Channels == 0 || TypeSize == 0) return;
 
 	if (Image->m_OwnsData && Image->m_Data)
 	{
@@ -135,7 +139,7 @@ static inline void ImageCreateMove(Image_t* Image, ui32 Width, ui32 Height, ui16
 	Image->m_Channels = Channels;
 	Image->m_TypeSize = TypeSize;
 
-	Image->m_Stride = (ui64)Width * TypeSize * Channels;
+	Image->m_Stride = (ui64)Width * Channels * TypeSize;
 	Image->m_Data = *Data;
 
 	Image->m_OwnsData = TRUE;
@@ -144,7 +148,7 @@ static inline void ImageCreateMove(Image_t* Image, ui32 Width, ui32 Height, ui16
 
 static inline BOOL ImageCreateCopy(Image_t* Image, ui32 Width, ui32 Height, ui16 Channels, ui64 TypeSize, void* Data)
 {
-	if (!Image || !Data) return FALSE;
+	if (!Image || !Data || Width == 0 || Height == 0 || Channels == 0 || TypeSize == 0) return FALSE;
 
 	if (Image->m_OwnsData && Image->m_Data)
 	{
@@ -157,14 +161,14 @@ static inline BOOL ImageCreateCopy(Image_t* Image, ui32 Width, ui32 Height, ui16
 	Image->m_Channels = Channels;
 	Image->m_TypeSize = TypeSize;
 
-	Image->m_Stride = (ui64)Width * Channels;
-	Image->m_Data = malloc(Height * Image->m_Stride * TypeSize);
+	Image->m_Stride = (ui64)Width * Channels * TypeSize;
+	Image->m_Data = malloc(Height * Image->m_Stride);
 	if (!Image->m_Data)
 	{
 		return FALSE;
 	}
 
-	memcpy(Image->m_Data, Data, Image->m_Stride * TypeSize);
+	memcpy(Image->m_Data, Data, (size_t)Image->m_Stride * Image->m_Height);
 
 	Image->m_OwnsData = TRUE;
 
@@ -173,11 +177,13 @@ static inline BOOL ImageCreateCopy(Image_t* Image, ui32 Width, ui32 Height, ui16
 
 static inline void ImageDelete(Image_t* Image)
 {
+	if (!Image) return;
 	if (Image->m_OwnsData && Image->m_Data)
 	{
 		free(Image->m_Data);
-		Image->m_Data = NULL;
 	}
+
+	memset(Image, 0, sizeof(Image_t));
 }
 
 static inline void* ImageGetAt(Image_t* Image, ui32 x, ui32 y)
@@ -188,26 +194,26 @@ static inline void* ImageGetAt(Image_t* Image, ui32 x, ui32 y)
 	ui8* Data = (ui8*)Image->m_Data;
 	ui64 BytesPerPixel = (ui64)Image->m_Channels * Image->m_TypeSize;
 	ui64 ByteOffset =
-		(ui64)y * Image->m_Stride * Image->m_TypeSize +
-		(ui64)x * BytesPerPixel;
+		(ui64)y * Image->m_Stride + x * BytesPerPixel;
 
 	return Data + ByteOffset;
 }
 
-static inline void ImageSetAt(Image_t* Image, ui32 x, ui32 y, ui64 Count, const void* Val)
+static inline BOOL ImageSetAt(Image_t* Image, ui32 x, ui32 y, ui64 Count, const void* Val)
 {
-	if (!Image || !Image->m_Data || !Val) return;
-	if (x >= Image->m_Width || y >= Image->m_Height) return;
+	if (!Image || !Image->m_Data || !Val) return FALSE;
+	if (x >= Image->m_Width || y >= Image->m_Height) return FALSE;
 
 	ui8* Data = (ui8*)Image->m_Data;
 	ui64 BytesPerPixel = (ui64)Image->m_Channels * Image->m_TypeSize;
 	ui64 ByteOffset =
-		(ui64)y * Image->m_Stride * Image->m_TypeSize +
-		(ui64)x * BytesPerPixel;
+		(ui64)y * Image->m_Stride + x * BytesPerPixel;
 
 	ui64 BytesToCopy = Count * BytesPerPixel;
 
 	memcpy(Data + ByteOffset, Val, BytesToCopy);
+
+	return TRUE;
 }
 
 
