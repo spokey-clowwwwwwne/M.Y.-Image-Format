@@ -76,6 +76,10 @@ typedef struct
 
 #define CHUNK_SIZE_NO_DATA (sizeof(Chunk_t) - sizeof(void*))
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 static inline void ImageInit(Image_t* Image)
 {
 	memset(Image, 0, sizeof(Image_t));
@@ -457,5 +461,9 @@ static inline BOOL ImageLoad(Image_t* OutImage, const char* FileName)
 	fclose(ImageFile);
 	return TRUE;
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // MY_IMAGE
